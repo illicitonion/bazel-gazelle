@@ -15,13 +15,22 @@ gazelle_binary(
     ],
 )
 
+# This test Gazelle binary only has the "test_filegroup_with_config" plugin installed.
+gazelle_binary(
+    name = "gazelle_with_configurable_language",
+    visibility = ["//visibility:private"],
+    languages = [
+        "//internal/language/test_filegroup_with_config",
+    ],
+)
+
 [gazelle_generation_test(
     # Name the test the path to the directory containing the WORKSPACE file.
     name = file[0:-len("/WORKSPACE")],
-    gazelle_binary = ":gazelle",
+    gazelle_binary = ":gazelle_with_configurable_language" if "_with_config" in file else ":gazelle",
     test_data = glob(
     	include = [file[0:-len("/WORKSPACE")] + "/**"],
     ),
 ) for file in glob(
     include = ["**/WORKSPACE"],
-) if file != "BUILD.bazel"]
+)]

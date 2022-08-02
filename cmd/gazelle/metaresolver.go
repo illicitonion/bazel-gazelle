@@ -23,10 +23,15 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
+type resolverKey struct {
+	rel      string
+	kindName string
+}
+
 // metaResolver provides a rule.Resolver for any rule.Rule.
 type metaResolver struct {
-	// builtins provides a map of the language kinds to their resolver.
-	builtins map[string]resolve.Resolver
+	// builtins provides a map of the (directory, language kind) to their resolver.
+	builtins map[resolverKey]resolve.Resolver
 
 	// mappedKinds provides a list of replacements used by File.Pkg.
 	mappedKinds map[string][]config.MappedKind
@@ -34,14 +39,18 @@ type metaResolver struct {
 
 func newMetaResolver() *metaResolver {
 	return &metaResolver{
-		builtins:    make(map[string]resolve.Resolver),
+		builtins:    make(map[resolverKey]resolve.Resolver),
 		mappedKinds: make(map[string][]config.MappedKind),
 	}
 }
 
 // AddBuiltin registers a builtin kind with its info.
-func (mr *metaResolver) AddBuiltin(kindName string, resolver resolve.Resolver) {
-	mr.builtins[kindName] = resolver
+func (mr *metaResolver) AddBuiltin(kindName string, rel string, resolver resolve.Resolver) {
+	key := resolverKey{
+		rel:      rel,
+		kindName: kindName,
+	}
+	mr.builtins[key] = resolver
 }
 
 // MappedKind records the fact that the given mapping was applied while
@@ -56,7 +65,11 @@ func (mr *metaResolver) MappedKind(pkgRel string, kind config.MappedKind) {
 func (mr *metaResolver) Resolver(r *rule.Rule, pkgRel string) resolve.Resolver {
 	for _, mappedKind := range mr.mappedKinds[pkgRel] {
 		if mappedKind.KindName == r.Kind() {
-			fromKindResolver := mr.builtins[mappedKind.FromKind]
+			key := resolverKey{
+				rel:      pkgRel,
+				kindName: mappedKind.FromKind,
+			}
+			fromKindResolver := mr.builtins[key]
 			if fromKindResolver == nil {
 				return nil
 			}
@@ -66,7 +79,11 @@ func (mr *metaResolver) Resolver(r *rule.Rule, pkgRel string) resolve.Resolver {
 			}
 		}
 	}
-	return mr.builtins[r.Kind()]
+	key := resolverKey{
+		rel:      pkgRel,
+		kindName: r.Kind(),
+	}
+	return mr.builtins[key]
 }
 
 // inverseMapKindResolver applies an inverse of the map_kind

@@ -222,16 +222,41 @@ type visitRecord struct {
 	// file is the build file being processed.
 	file *rule.File
 
+	// kinds and loads for this visit.
+	kinds map[string]rule.KindInfo
+	loads []rule.LoadInfo
+
 	// mappedKinds are mapped kinds used during this visit.
 	mappedKinds    []config.MappedKind
 	mappedKindInfo map[string]rule.KindInfo
 }
 
-var genericLoads = []rule.LoadInfo{
-	{
-		Name:    "@bazel_gazelle//:def.bzl",
-		Symbols: []string{"gazelle"},
-	},
+func genericLoads() []rule.LoadInfo {
+	return []rule.LoadInfo{
+		{
+			Name:    "@bazel_gazelle//:def.bzl",
+			Symbols: []string{"gazelle"},
+		},
+	}
+}
+
+func configure(c *config.Config, cexts []config.Configurer, rel string, f *rule.File, mrslv *metaResolver) (*config.Config, map[string]rule.KindInfo, []rule.LoadInfo) {
+	c = c.Clone()
+	for _, cext := range cexts {
+		cext.Configure(c, rel, f)
+	}
+	loads := genericLoads()
+	kinds := make(map[string]rule.KindInfo)
+	for _, lang := range languages {
+		langKinds, langLoads := language.KindsAndLoads(lang, c, &rel)
+
+		for kind, info := range langKinds {
+			mrslv.AddBuiltin(kind, rel, lang)
+			kinds[kind] = info
+		}
+		loads = append(loads, langLoads...)
+	}
+	return c, kinds, loads
 }
 
 func runFixUpdate(wd string, cmd command, args []string) (err error) {
@@ -241,34 +266,42 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 		&updateConfigurer{},
 		&walk.Configurer{},
 		&resolve.Configurer{})
-	mrslv := newMetaResolver()
-	kinds := make(map[string]rule.KindInfo)
-	loads := genericLoads
+
 	exts := make([]interface{}, 0, len(languages))
 	for _, lang := range languages {
 		cexts = append(cexts, lang)
-		for kind, info := range lang.Kinds() {
-			mrslv.AddBuiltin(kind, lang)
-			kinds[kind] = info
-		}
-		loads = append(loads, lang.Loads()...)
 		exts = append(exts, lang)
 	}
-	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
 
 	c, err := newFixUpdateConfiguration(wd, cmd, args, cexts)
 	if err != nil {
 		return err
 	}
 
-	if err := fixRepoFiles(c, loads); err != nil {
-		return err
+	// Process repo-wide files:
+	{
+		loads := genericLoads()
+		for _, lang := range languages {
+			_, langLoads := language.KindsAndLoads(lang, c, nil)
+			loads = append(loads, langLoads...)
+		}
+
+		if err := fixRepoFiles(c, loads); err != nil {
+			return err
+		}
 	}
+
+	mrslv := newMetaResolver()
+	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
 
 	// Visit all directories in the repository.
 	var visits []visitRecord
 	uc := getUpdateConfig(c)
 	walk.Walk(c, cexts, uc.dirs, uc.walkMode, func(dir, rel string, c *config.Config, update bool, f *rule.File, subdirs, regularFiles, genFiles []string) {
+		var kinds map[string]rule.KindInfo
+		var loads []rule.LoadInfo
+		c, kinds, loads = configure(c, cexts, rel, f, mrslv)
+
 		// If this file is ignored or if Gazelle was not asked to update this
 		// directory, just index the build file and move on.
 		if !update {
@@ -344,6 +377,8 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 			imports:        imports,
 			empty:          empty,
 			file:           f,
+			loads:          loads,
+			kinds:          kinds,
 			mappedKinds:    mappedKinds,
 			mappedKindInfo: mappedKindInfo,
 		})
@@ -374,13 +409,13 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 			}
 		}
 		merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve,
-			unionKindInfoMaps(kinds, v.mappedKindInfo))
+			unionKindInfoMaps(v.kinds, v.mappedKindInfo))
 	}
 
 	// Emit merged files.
 	var exit error
 	for _, v := range visits {
-		merger.FixLoads(v.file, applyKindMappings(v.mappedKinds, loads))
+		merger.FixLoads(v.file, applyKindMappings(v.mappedKinds, v.loads))
 		if err := uc.emit(v.c, v.file); err != nil {
 			if err == errExit {
 				exit = err

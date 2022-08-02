@@ -1,0 +1,48 @@
+--- subdir/inherits/BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
++++ subdir/inherits/BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
+@@ -0,0 +1,9 @@
++load("@custom//different:filegroup.bzl", "custom_filegroup")
++
++custom_filegroup(
++    name = "all_files",
++    testonly = True,
++    srcs = ["BUILD.bazel"],
++    visibility = ["//visibility:public"],
++)
++
+--- subdir/BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
++++ subdir/BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
+@@ -1,2 +1,14 @@
++load("@custom//different:filegroup.bzl", "custom_filegroup")
++
+ # gazelle:filegroup_load_from @custom//different:filegroup.bzl
+ 
++custom_filegroup(
++    name = "all_files",
++    testonly = True,
++    srcs = [
++        "BUILD.bazel",
++        "//subdir/inherits:all_files",
++    ],
++    visibility = ["//visibility:public"],
++)
++
+--- BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
++++ BUILD.bazel	1970-01-01 00:00:00.000000000 +0000
+@@ -1,2 +1,16 @@
++load("@custom//:rule.bzl", "custom_filegroup")
++
+ # gazelle:filegroup_load_from @custom//:rule.bzl
+ 
++custom_filegroup(
++    name = "all_files",
++    testonly = True,
++    srcs = [
++        "BUILD.bazel",
++        "README.md",
++        "WORKSPACE",
++        "//subdir:all_files",
++    ],
++    visibility = ["//visibility:public"],
++)
++

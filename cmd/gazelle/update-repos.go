@@ -129,15 +129,20 @@ func updateRepos(wd string, args []string) (err error) {
 	loads := []rule.LoadInfo{}
 	for _, lang := range languages {
 		cexts = append(cexts, lang)
-		loads = append(loads, lang.Loads()...)
-		for kind, info := range lang.Kinds() {
-			kinds[kind] = info
-		}
 	}
 	c, err := newUpdateReposConfiguration(wd, args, cexts)
 	if err != nil {
 		return err
 	}
+
+	for _, lang := range languages {
+		langKinds, langLoads := language.KindsAndLoads(lang, c, nil)
+		loads = append(loads, langLoads...)
+		for kind, info := range langKinds {
+			kinds[kind] = info
+		}
+	}
+
 	uc := getUpdateReposConfig(c)
 
 	// TODO(jayconrod): move Go-specific RemoteCache logic to language/go.
