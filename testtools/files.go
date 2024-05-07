@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -128,13 +129,13 @@ func CheckFiles(t *testing.T, dir string, files []FileSpec) {
 				t.Errorf("not a directory: %s", f.Path)
 			}
 		} else {
-			want := strings.TrimSpace(f.Content)
+			want := normalizeSpace(f.Content)
 			gotBytes, err := ioutil.ReadFile(filepath.Join(dir, f.Path))
 			if err != nil {
 				t.Errorf("could not read %s: %v", f.Path, err)
 				continue
 			}
-			got := strings.TrimSpace(string(gotBytes))
+			got := normalizeSpace(string(gotBytes))
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("%s diff (-want,+got):\n%s", f.Path, diff)
 			}
@@ -224,7 +225,7 @@ func TestGazelleGenerationOnPath(t *testing.T, args *TestGazelleGenerationArgs) 
 
 			// Read in expected stdout, stderr, and exit code files.
 			if d.Name() == argumentsFilename {
-				config.Args = strings.Split(string(content), "\n")
+				config.Args = strings.Split(normalizeSpace(string(content)), "\n")
 				return nil
 			}
 			if d.Name() == expectedStdoutFilename {
@@ -353,13 +354,13 @@ Run %s to update BUILD.out and expected{Stdout,Stderr,ExitCode}.txt files.
 			}
 		}
 		actualStdout := redactWorkspacePath(stdout.String(), workspaceRoot)
-		if strings.TrimSpace(config.Stdout) != strings.TrimSpace(actualStdout) {
+		if normalizeSpace(config.Stdout) != normalizeSpace(actualStdout) {
 			errs = append(errs, fmt.Errorf("expected gazelle stdout: %s\ngot: %s",
 				config.Stdout, actualStdout,
 			))
 		}
 		actualStderr := redactWorkspacePath(stderr.String(), workspaceRoot)
-		if strings.TrimSpace(config.Stderr) != strings.TrimSpace(actualStderr) {
+		if normalizeSpace(config.Stderr) != normalizeSpace(actualStderr) {
 			errs = append(errs, fmt.Errorf("expected gazelle stderr: %s\ngot: %s",
 				config.Stderr, actualStderr,
 			))
@@ -423,4 +424,11 @@ func updateExpectedConfig(t *testing.T, expected string, actual string, srcTestD
 // output reproducible.
 func redactWorkspacePath(s, wsPath string) string {
 	return strings.ReplaceAll(s, wsPath, "%WORKSPACEPATH%")
+}
+
+func normalizeSpace(s string) string {
+	if runtime.GOOS == "windows" {
+		s = strings.ReplaceAll(s, "\r\n", "\n")
+	}
+	return strings.TrimSpace(s)
 }
